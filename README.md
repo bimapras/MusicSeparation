@@ -1,18 +1,52 @@
-Proyek ini berfokus pada **music source separation** (pemisahan sumber musik) di **domain waktu**. Model terinspirasi dari beberapa arsitektur terkini:  
+This project is inspired by Music Source Separation research in time domain. It draws upon several key references that have significantly influenced its development, including:
 - [Demucs v2](https://arxiv.org/abs/1911.13254)  
 - [Wave-U-Net](https://arxiv.org/abs/1806.03185)  
 - [Conv-TasNet](https://arxiv.org/abs/1809.07454)  
-- [DPRNN (Dual-Path RNN)](https://arxiv.org/abs/1910.06379)  
+- [DPRNN (Dual-Path RNN)](https://arxiv.org/abs/1910.06379)
 
-Tujuan utama adalah memisahkan audio campuran menjadi sumber-sumber individual seperti **vokal, drum, bass, instrumen lainnya** menggunakan pendekatan **end-to-end pada time domain**.
-## Install library and depedencies with specific version to use pretrained model
-```
-pip install requirement.txt
-```
-or
-```
-pip install tensorflow=2.17
-```
+These models serve as the main inspiration and foundational references for the design and implementation of this project.
+
+Demo using google colab [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](
+https://colab.research.google.com/github/yourusername/audio-separation/blob/main/notebooks/demo.ipynb)
+# How to use
+- clone repository
+    ```
+    git clone https://github.com/bimapras/MusicSeparation.git
+    ```
+- Install library and depedencies with specific version to use pretrained model
+    ```
+    pip install requirement.txt
+    ```
+    or
+    ```
+    pip install tensorflow=2.17 numpy musdb librosa soundfile
+    ```
+- Infference
+    ```
+    from utils import read_audio, inference
+    '''
+    Inference expect tflite model with input shape (time, 2)
+    Make sure segment_length is your time length input model (Default model use 88064)
+    '''
+
+    reader = read_audio.AudioReader()
+    audio_data, samplerate = reader.read(r'sample\Pierce The Veil - So Far So Fake (Visualizer).mp4')
+
+    tflite_model_path = r'models/DPTCN.tflite'
+    inference = inference.AudioInference(model=tflite_model_path,
+                                segment_length=88064,
+                                overlap=0.5,
+                                batch_size=4,
+                                use_wiener=True,
+                                stft_frame_length=4096,
+                                stft_frame_step=1024,
+                                wiener_iterations=3)
+    pred = inference.predict(audio_data,
+                            segment_length_sec=30,
+                            export=True, 
+                            export_dir="DPTCN_result")
+    ```
+
 # Training your own model
 ### 1. Prepare Dataset MUSDB18
 ```
