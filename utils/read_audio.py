@@ -20,7 +20,6 @@ class AudioReader:
             '-f', 'wav',              # Output format
             tmp_wav_path
         ]
-
         subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
         audio_np, samplerate = sf.read(tmp_wav_path, always_2d=True)
 
