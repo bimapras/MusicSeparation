@@ -6,7 +6,7 @@ This project is inspired by Music Source Separation research in time domain. It 
 
 These models serve as the main inspiration and foundational references for the design and implementation of this project.
 
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/bimapras/MusicSeparation/blob/main/demo.ipynb)
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/bimapras/MusicSeparation/blob/master/demo.ipynb)
 
 # How to use
 - clone repository
