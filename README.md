@@ -6,9 +6,8 @@ This project is inspired by Music Source Separation research in time domain. It 
 
 These models serve as the main inspiration and foundational references for the design and implementation of this project.
 
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/bimapras/MusicSeparation/blob/master/demo.ipynb)
-
 # How to use
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/bimapras/MusicSeparation/blob/master/demo.ipynb)
 - clone repository
     ```
     git clone https://github.com/bimapras/MusicSeparation.git
@@ -82,10 +81,10 @@ train_set = train_builder.get_tf_dataset(batch_size=BATCH_SIZE, shuffle=True, au
 ### 3. Create model and configuration training
 ```
 import tensorflow as tf
-from modules import loss, model
+from modules import loss_metrics, model
 
-loss = loss.new_demucs_loss
-metrics = loss.compute_sdr
+loss = loss_metrics.new_demucs_loss
+metrics = loss_metrics.compute_sdr
 EPOCH = 80
 
 # Create Model
@@ -102,13 +101,13 @@ model = model.SeparatorModel(
 )
 '''
 you can create your own model with modify SeparatorModel in model.py
-for custom layer i already put in layers_wrapper.py
+for custom layer is already in layers_wrapper.py
 '''
 
 # Compile
 model.compile(optimizer = tf.keras.optimizers.AdamW(learning_rate = 0.0003, global_clipnorm=1.0), 
               loss = loss, 
-              metrics = [metrics])
+              metrics = [compute_sdr])
 
 # Training
 history = model.fit(train_set, validation_data = val_set, epochs = EPOCH, verbose = 1,

@@ -1,13 +1,14 @@
 import tensorflow as tf
 import os
-from tqdm import tqdm
 import soundfile as sf
 from modules.layers_wrapper import TFLiteWrapper
+from tqdm import tqdm
 
 class AudioInference:
     def __init__(
         self,
         model,
+        is_tflite=False,
         sample_rate=44100,
         segment_length=88064,
         overlap=0.5,
@@ -15,9 +16,15 @@ class AudioInference:
         use_wiener=False,
         stft_frame_length=2048,
         stft_frame_step=512,
-        wiener_iterations=3,
+        wiener_iterations=1,
     ):
-        self.model = TFLiteWrapper(model)
+        if is_tflite:
+            # Bungkus model dengan TFLiteWrapper
+            self.model = TFLiteWrapper(model)
+        else:
+            self.model = tf.keras.models.load_model(model, compile=False)
+
+        self.is_tflite = is_tflite
         self.sample_rate = sample_rate
         self.segment_length = segment_length
         self.overlap = overlap
@@ -29,6 +36,7 @@ class AudioInference:
 
     @tf.function
     def _wiener_filter_tf(self, stems, mixture):
+        # (Sama seperti kode kamu, tidak saya ubah)
         eps = 1e-10
         stems = tf.cast(stems, tf.float32)
         mixture = tf.cast(mixture, tf.float32)
@@ -81,6 +89,7 @@ class AudioInference:
         return tf.reshape(time_sources, [tf.shape(time_sources)[0], 4, 2])
 
     def _predict_full_batch_tflite(self, audio):
+        # Ini mirip kode lama, dengan progress bar dan batching manual
         hop = int(round(self.segment_length * (1.0 - self.overlap)))
         n = audio.shape[0]
         n_segments = int(tf.math.ceil((n - self.segment_length) / hop)) + 1
@@ -95,7 +104,7 @@ class AudioInference:
         frames_windowed = frames * tf.reshape(window, [1, self.segment_length, 1])
 
         preds_list = []
-        for start_idx in tqdm(range(0, n_segments, self.batch_size), desc="Inference Progress"):
+        for start_idx in tqdm(range(0, n_segments, self.batch_size), desc="Inference TFLite Progress"):
             end_idx = min(start_idx + self.batch_size, n_segments)
             batch = frames_windowed[start_idx:end_idx]
             preds = self.model.predict_batch(batch)
@@ -115,8 +124,45 @@ class AudioInference:
 
         return stems_out
 
+    def _predict_full_batch_tf(self, audio):
+        # Tidak memakai tf.function karena ada loop dan tf.signal.frame dengan bentuk dinamis
+        hop = int(round(self.segment_length * (1.0 - self.overlap)))
+        n = audio.shape[0]
+        n_segments = int(tf.math.ceil((n - self.segment_length) / hop)) + 1
+        total_len = (n_segments - 1) * hop + self.segment_length
+        pad = total_len - n
+        audio_padded = tf.pad(audio, [[0, pad], [0, 0]])
+
+        left = tf.signal.frame(audio_padded[:, 0], self.segment_length, hop)
+        right = tf.signal.frame(audio_padded[:, 1], self.segment_length, hop)
+        frames = tf.stack([left, right], axis=-1)
+        window = tf.signal.hann_window(self.segment_length, periodic=True, dtype=tf.float32)
+        frames_windowed = frames * tf.reshape(window, [1, self.segment_length, 1])
+
+        preds_list = []
+        for start_idx in range(0, n_segments, self.batch_size):
+            end_idx = min(start_idx + self.batch_size, n_segments)
+            batch = frames_windowed[start_idx:end_idx]
+            preds = self.model(batch, training=False)
+            preds_list.append(preds)
+
+        predictions = tf.concat(preds_list, axis=0)[:n_segments]
+        preds_reshaped = tf.reshape(predictions, [n_segments, self.segment_length, 4, 2])
+
+        stems_reshaped = tf.reshape(preds_reshaped, [n_segments, self.segment_length, 8])
+        stems_T = tf.transpose(stems_reshaped, [2, 0, 1])
+        recon = tf.map_fn(lambda ch: tf.signal.overlap_and_add(ch, hop), stems_T)
+        recon = tf.transpose(recon, [1, 0])[:n]
+        stems_out = tf.reshape(recon, [n, 4, 2])
+
+        if self.use_wiener:
+            stems_out = self._wiener_filter_tf(stems_out, audio)
+
+        return stems_out
+
     def predict(self, audio, segment_length_sec=None, export=False, export_dir="stems"):
         audio = tf.cast(audio, tf.float32)
+
         if segment_length_sec is not None and segment_length_sec > 0:
             segment_len_samples = int(segment_length_sec * self.sample_rate)
             n = audio.shape[0]
@@ -124,11 +170,17 @@ class AudioInference:
             for start in range(0, n, segment_len_samples):
                 end = min(start + segment_len_samples, n)
                 seg = audio[start:end]
-                out = self._predict_full_batch_tflite(seg)
+                if self.is_tflite:
+                    out = self._predict_full_batch_tflite(seg)
+                else:
+                    out = self._predict_full_batch_tf(seg)
                 outputs.append(out)
             pred = tf.concat(outputs, axis=0)
         else:
-            pred = self._predict_full_batch_tflite(audio)
+            if self.is_tflite:
+                pred = self._predict_full_batch_tflite(audio)
+            else:
+                pred = self._predict_full_batch_tf(audio)
 
         if export:
             os.makedirs(export_dir, exist_ok=True)
