@@ -4,7 +4,10 @@ This project is inspired by Music Source Separation research in time domain. It 
 - [Conv-TasNet](https://arxiv.org/abs/1809.07454)  
 - [DPRNN (Dual-Path RNN)](https://arxiv.org/abs/1910.06379)
 
-These models serve as the main inspiration and foundational references for the design and implementation of this project.
+These models serve as the main inspiration and foundational references for the design and implementation of this project. 
+The separation results can be seen in the image below, generated from an audio sample.
+
+![Separation Spectrogram Result](/DPTCN_result/Separation%20Spectrogram.png)
 
 # How to use
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/bimapras/MusicSeparation/blob/master/demo.ipynb)
@@ -22,11 +25,11 @@ Note : (01/10/2025) Colab use tensorflow 2.19 and it still compatible with pretr
     ```
     pip install tensorflow=2.17 numpy musdb librosa soundfile
     ```
-- Infference
+- Inference
     ```
     from utils import read_audio, inference
     '''
-    Inference expect tflite model with input shape (time, 2)
+    Inference expect model with input shape (time, 2)
     Make sure segment_length is your time length input model (Default model use 88064)
     '''
 
@@ -35,6 +38,7 @@ Note : (01/10/2025) Colab use tensorflow 2.19 and it still compatible with pretr
 
     tflite_model_path = r'models/DPTCN.tflite'
     inference = inference.AudioInference(model=tflite_model_path,
+                                is_tflite=True,
                                 segment_length=88064,
                                 overlap=0.5,
                                 batch_size=4,
