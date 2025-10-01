@@ -8,6 +8,8 @@ These models serve as the main inspiration and foundational references for the d
 
 # How to use
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/bimapras/MusicSeparation/blob/master/demo.ipynb)
+
+Note : (01/10/2025) Colab use tensorflow 2.19 and it still compatible with pretrained model that trained in tensorflow 2.17
 - clone repository
     ```
     git clone https://github.com/bimapras/MusicSeparation.git
