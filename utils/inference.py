@@ -19,7 +19,6 @@ class AudioInference:
         wiener_iterations=1,
     ):
         if is_tflite:
-            # Bungkus model dengan TFLiteWrapper
             self.model = TFLiteWrapper(model)
         else:
             self.model = tf.keras.models.load_model(model, compile=False)
@@ -36,7 +35,6 @@ class AudioInference:
 
     @tf.function
     def _wiener_filter_tf(self, stems, mixture):
-        # (Sama seperti kode kamu, tidak saya ubah)
         eps = 1e-10
         stems = tf.cast(stems, tf.float32)
         mixture = tf.cast(mixture, tf.float32)
@@ -89,7 +87,6 @@ class AudioInference:
         return tf.reshape(time_sources, [tf.shape(time_sources)[0], 4, 2])
 
     def _predict_full_batch_tflite(self, audio):
-        # Ini mirip kode lama, dengan progress bar dan batching manual
         hop = int(round(self.segment_length * (1.0 - self.overlap)))
         n = audio.shape[0]
         n_segments = int(tf.math.ceil((n - self.segment_length) / hop)) + 1
@@ -125,7 +122,6 @@ class AudioInference:
         return stems_out
 
     def _predict_full_batch_tf(self, audio):
-        # Tidak memakai tf.function karena ada loop dan tf.signal.frame dengan bentuk dinamis
         hop = int(round(self.segment_length * (1.0 - self.overlap)))
         n = audio.shape[0]
         n_segments = int(tf.math.ceil((n - self.segment_length) / hop)) + 1
