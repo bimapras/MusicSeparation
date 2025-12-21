@@ -4,10 +4,44 @@ This project is inspired by Music Source Separation research in time domain. It 
 - [Conv-TasNet](https://arxiv.org/abs/1809.07454)  
 - [DPRNN (Dual-Path RNN)](https://arxiv.org/abs/1910.06379)
 
-These models serve as the main inspiration and foundational references for the design and implementation of this project. 
-The separation results can be seen in the image below, generated from an audio sample.
+These models serve as the main inspiration and foundational references for the design and implementation of this project. The separation results can be seen in the spectrogram images below and heard through the corresponding playable audio, generated from an audio sample.
 
 ![Separation Spectrogram Result](/DPTCN_result/Separation%20Spectrogram.png)
+
+<table>
+    <thead>
+        <tr>
+            <th align="center">Vocal</th>
+            <th align="center">Drums</th>
+            <th align="center">Bass</th>
+            <th align="center">Other</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td align="center">
+                <audio controls>
+                    <source src="DPTCN_result/vocals.wav" type="audio/wav">
+                </audio>
+            </td>
+            <td align="center">
+                <audio controls>
+                    <source src="DPTCN_result/drums.wav" type="audio/wav">
+                </audio>
+            </td>
+            <td align="center">
+                <audio controls>
+                    <source src="DPTCN_result/bass.wav" type="audio/wav">
+                </audio>
+            </td>
+            <td align="center">
+                <audio controls>
+                    <source src="DPTCN_result/other.wav" type="audio/wav">
+                </audio>
+            </td>
+        </tr>
+    </tbody>
+</table>
 
 # How to use
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/bimapras/MusicSeparation/blob/master/demo.ipynb)
