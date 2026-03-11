@@ -8,41 +8,6 @@ These models serve as the main inspiration and foundational references for the d
 
 ![Separation Spectrogram Result](/DPTCN_result/Separation%20Spectrogram.png)
 
-<table>
-    <thead>
-        <tr>
-            <th align="center">Vocal</th>
-            <th align="center">Drums</th>
-            <th align="center">Bass</th>
-            <th align="center">Other</th>
-        </tr>
-    </thead>
-    <tbody>
-        <tr>
-            <td align="center">
-                <audio controls>
-                    <source src="DPTCN_result/vocals.wav" type="audio/wav">
-                </audio>
-            </td>
-            <td align="center">
-                <audio controls>
-                    <source src="DPTCN_result/drums.wav" type="audio/wav">
-                </audio>
-            </td>
-            <td align="center">
-                <audio controls>
-                    <source src="DPTCN_result/bass.wav" type="audio/wav">
-                </audio>
-            </td>
-            <td align="center">
-                <audio controls>
-                    <source src="DPTCN_result/other.wav" type="audio/wav">
-                </audio>
-            </td>
-        </tr>
-    </tbody>
-</table>
-
 # How to use
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/bimapras/MusicSeparation/blob/master/demo.ipynb)
 
@@ -61,7 +26,8 @@ Note : (01/10/2025) Colab use tensorflow 2.19 and it still compatible with pretr
     ```
 - Inference
     ```
-    from utils import read_audio, inference
+    from utils import read_audio
+    from utils.inference import AudioInference
     '''
     Inference expect model with input shape (time, 2)
     Make sure segment_length is your time length input model (Default model use 88064)
@@ -71,7 +37,7 @@ Note : (01/10/2025) Colab use tensorflow 2.19 and it still compatible with pretr
     audio_data, samplerate = reader.read(r'sample\Pierce The Veil - So Far So Fake (Visualizer).mp4')
 
     tflite_model_path = r'models/DPTCN.tflite'
-    inference = inference.AudioInference(model=tflite_model_path,
+    inference = AudioInference(model=tflite_model_path,
                                 is_tflite=True,
                                 segment_length=88064,
                                 overlap=0.5,
