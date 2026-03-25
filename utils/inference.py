@@ -1,7 +1,7 @@
 import tensorflow as tf
 import os
 import soundfile as sf
-from update.layers_wrapper_dev import TFLiteWrapper, ONNXWrapper
+from modules.layers_wrapper import TFLiteWrapper, ONNXWrapper
 from tqdm import tqdm
 
 class AudioInference:
