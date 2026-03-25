@@ -4,14 +4,14 @@ This project is inspired by Music Source Separation research in time domain. It 
 - [Conv-TasNet](https://arxiv.org/abs/1809.07454)  
 - [DPRNN (Dual-Path RNN)](https://arxiv.org/abs/1910.06379)
 
-These models serve as the main inspiration and foundational references for the design and implementation of this project. The separation results can be seen in the spectrogram images below and heard through the corresponding playable audio, generated from an audio sample.
+These models serve as the main inspiration and foundational references for the design and implementation of this project. The separation results can be seen in the spectrogram images below and heard through the corresponding playable audio, generated from an audio sample in [DPTCN_result](/DPTCN_result).
 
 ![Separation Spectrogram Result](/DPTCN_result/Separation%20Spectrogram.png)
 
 # How to use
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/bimapras/MusicSeparation/blob/master/demo.ipynb)
 
-Note : (01/10/2025) Colab use tensorflow 2.19 and it still compatible with pretrained model that trained in tensorflow 2.17
+Note : (01/10/2025) Colab use tensorflow 2.19 and it still compatible with pretrained model that trained in tensorflow 2.17 with &plusmn;320 epochs.
 - clone repository
     ```
     git clone https://github.com/bimapras/MusicSeparation.git
@@ -22,7 +22,7 @@ Note : (01/10/2025) Colab use tensorflow 2.19 and it still compatible with pretr
     ```
     or
     ```
-    pip install tensorflow=2.17 numpy musdb librosa soundfile
+    pip install tensorflow==2.17.1 librosa onnx onnxruntime soundfile numpy tqdm librosa
     ```
 - Inference
     ```

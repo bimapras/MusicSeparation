@@ -1,194 +1,173 @@
 import tensorflow as tf
 import os
 import soundfile as sf
-from modules.layers_wrapper import TFLiteWrapper
+from update.layers_wrapper_dev import TFLiteWrapper, ONNXWrapper
 from tqdm import tqdm
 
 class AudioInference:
     def __init__(
         self,
-        model,
-        is_tflite=False,
+        model_path,
         sample_rate=44100,
         segment_length=88064,
-        overlap=0.5,
-        batch_size=4,
+        overlap=0.25,
         use_wiener=False,
         stft_frame_length=2048,
         stft_frame_step=512,
         wiener_iterations=1,
     ):
-        if is_tflite:
-            self.model = TFLiteWrapper(model)
-        else:
-            self.model = tf.keras.models.load_model(model, compile=False)
 
-        self.is_tflite = is_tflite
+        self.format = model_path.split(".")[-1].lower()
+        if self.format == "tflite":
+            self.model = TFLiteWrapper(model_path)
+        elif self.format == "onnx":
+            self.model = ONNXWrapper(model_path)
+        elif self.format in ["h5", "keras"]:
+            self.format = "keras"
+            self.model = tf.keras.models.load_model(model_path, compile=False)
+        else:
+            raise ValueError("Unsupported model format")
+
         self.sample_rate = sample_rate
         self.segment_length = segment_length
         self.overlap = overlap
-        self.batch_size = batch_size
+        self.hop = int(round(segment_length * (1 - overlap)))
         self.use_wiener = use_wiener
         self.stft_frame_length = stft_frame_length
         self.stft_frame_step = stft_frame_step
         self.wiener_iterations = wiener_iterations
+        self.window = tf.signal.hann_window(segment_length, periodic=True, dtype=tf.float32)
+
+    def _predict_batch(self, batch):
+        if self.format == "keras":
+            return self.model(batch, training=False)
+        return self.model.predict_batch(batch)
+
+    def _predict_stream(self, audio):
+        n = audio.shape[0]
+        n_channels = audio.shape[-1]
+
+        if n < self.segment_length:
+            pad = self.segment_length - n
+            audio = tf.pad(audio, [[0, pad], [0, 0]])
+            n = tf.shape(audio)[0]
+
+        # n-segments
+        n_segments = (n - 1) // self.hop + 1
+        total_len = self.hop * (n_segments - 1) + self.segment_length
+        pad_total = total_len - n
+        audio_pad = tf.pad(audio, [[0, pad_total], [0, 0]])
+
+        # Output buffer
+        output = tf.zeros([total_len, 4, 2], dtype=tf.float32)
+        window_sum = tf.zeros([total_len], dtype=tf.float32)
+
+        for i in tqdm(range(n_segments), desc="Inference Progress"):
+            start = i * self.hop
+            end = start + self.segment_length
+            frame_len = end - start
+
+            frame = audio_pad[start:end] * tf.reshape(self.window[:frame_len], [-1, 1])
+            frame = tf.expand_dims(frame, axis=0)
+            pred = self._predict_batch(frame)[0]  # [frame_len, 8]
+            pred = tf.reshape(pred, [frame_len, 4, 2])
+            pred = pred * tf.reshape(self.window[:frame_len], [-1, 1, 1])
+
+            output = tf.tensor_scatter_nd_add(
+                output,
+                tf.reshape(tf.range(start, end), [-1, 1]),
+                pred
+            )
+            window_sum = tf.tensor_scatter_nd_add(
+                window_sum,
+                tf.reshape(tf.range(start, end), [-1, 1]),
+                self.window[:frame_len]
+            )
+
+        output = output / tf.reshape(tf.maximum(window_sum, 1e-8), [-1, 1, 1])
+        return output[:n]
 
     @tf.function
     def _wiener_filter_tf(self, stems, mixture):
         eps = 1e-10
         stems = tf.cast(stems, tf.float32)
         mixture = tf.cast(mixture, tf.float32)
+        n_samples = tf.shape(mixture)[0]
+        pad = self.stft_frame_length
 
-        mix_T = tf.transpose(mixture, [1, 0])
-        stft_mix = tf.signal.stft(
-            mix_T, self.stft_frame_length, self.stft_frame_step,
-            window_fn=tf.signal.hann_window
-        )
-        stft_mix = tf.transpose(stft_mix, [1, 2, 0])
+        mixture_pad = tf.pad(mixture, [[pad, pad], [0, 0]])
+        stems_pad = tf.pad(stems, [[pad, pad], [0, 0], [0, 0]])
 
-        stems_perm = tf.transpose(stems, [1, 2, 0])
-        stems_flat = tf.reshape(stems_perm, [8, -1])
-        stft_stems = tf.signal.stft(
-            stems_flat, self.stft_frame_length, self.stft_frame_step,
-            window_fn=tf.signal.hann_window
-        )
-        frames = tf.shape(stft_stems)[1]
-        fftbins = tf.shape(stft_stems)[2]
-        stft_stems = tf.reshape(stft_stems, [4, 2, frames, fftbins])
-        stft_stems = tf.transpose(stft_stems, [2, 3, 0, 1])
+        # STFT mixture
+        stft_mix = tf.signal.stft(tf.transpose(mixture_pad, [1, 0]),
+                                  frame_length=self.stft_frame_length,
+                                  frame_step=self.stft_frame_step,
+                                  window_fn=tf.signal.hann_window)
+        mix_mag = tf.abs(stft_mix)
+        expanded_mix_mag = tf.expand_dims(mix_mag, axis=-1)
+        expanded_mix_mag = tf.transpose(expanded_mix_mag, [1, 2, 3, 0])
+        mix_phase = stft_mix / tf.cast(tf.maximum(mix_mag, eps), tf.complex64)
+        mix_phase = tf.transpose(mix_phase, [1, 2, 0])
+        mix_phase = tf.expand_dims(mix_phase, axis=2)
 
-        source_mag = tf.maximum(tf.abs(stft_stems), eps)
-        Y = stft_mix
-        Y_mag = tf.abs(Y)
-        denom = tf.cast(tf.maximum(Y_mag, eps), tf.complex64)
-        Y_phase = Y / denom
+        # STFT stems
+        stems_flat = tf.transpose(stems_pad, [1, 2, 0])
+        stems_flat = tf.reshape(stems_flat, [8, -1])
+        stft_stems = tf.signal.stft(stems_flat,
+                                    frame_length=self.stft_frame_length,
+                                    frame_step=self.stft_frame_step,
+                                    window_fn=tf.signal.hann_window)
+        stft_stems_mag = tf.abs(stft_stems)
+        frames = tf.shape(stft_stems_mag)[1]
+        fftbins = tf.shape(stft_stems_mag)[2]
+        stft_stems_mag = tf.reshape(stft_stems_mag, [4, 2, frames, fftbins])
+        stft_stems_mag = tf.transpose(stft_stems_mag, [2, 3, 0, 1])
+        source_mag = tf.maximum(stft_stems_mag, eps)
 
-        def cond(i, sm):
-            return i < self.wiener_iterations
-
+        # Wiener iterations
+        def cond(i, sm): return i < self.wiener_iterations
         def body(i, sm):
             power = tf.square(sm)
             total_power = tf.reduce_sum(power, axis=2, keepdims=True) + eps
             gain = power / total_power
-            sm = gain * tf.expand_dims(Y_mag, axis=2)
+            sm = gain * expanded_mix_mag
             return i + 1, sm
 
         _, source_mag = tf.while_loop(cond, body, [0, source_mag])
+        source_est = tf.cast(source_mag, tf.complex64) * mix_phase
 
-        source_est = tf.cast(source_mag, tf.complex64) * tf.expand_dims(Y_phase, axis=2)
+        # ISTFT
         source_est = tf.transpose(source_est, [2, 3, 0, 1])
         source_est = tf.reshape(source_est, [8, frames, fftbins])
-
-        time_sources = tf.signal.inverse_stft(
-            source_est, self.stft_frame_length, self.stft_frame_step,
-            window_fn=tf.signal.hann_window
-        )
+        time_sources = tf.signal.inverse_stft(source_est,
+                                              frame_length=self.stft_frame_length,
+                                              frame_step=self.stft_frame_step,
+                                              window_fn=tf.signal.hann_window)
         time_sources = tf.transpose(time_sources, [1, 0])
-        return tf.reshape(time_sources, [tf.shape(time_sources)[0], 4, 2])
+        time_sources = time_sources[pad:pad + n_samples]
+        return tf.reshape(time_sources, [n_samples, 4, 2])
 
-    def _predict_full_batch_tflite(self, audio):
-        hop = int(round(self.segment_length * (1.0 - self.overlap)))
-        n = audio.shape[0]
-        n_segments = int(tf.math.ceil((n - self.segment_length) / hop)) + 1
-        total_len = (n_segments - 1) * hop + self.segment_length
-        pad = total_len - n
-        audio_padded = tf.pad(audio, [[0, pad], [0, 0]])
-
-        left = tf.signal.frame(audio_padded[:, 0], self.segment_length, hop)
-        right = tf.signal.frame(audio_padded[:, 1], self.segment_length, hop)
-        frames = tf.stack([left, right], axis=-1)
-        window = tf.signal.hann_window(self.segment_length, periodic=True, dtype=tf.float32)
-        frames_windowed = frames * tf.reshape(window, [1, self.segment_length, 1])
-
-        preds_list = []
-        for start_idx in tqdm(range(0, n_segments, self.batch_size), desc="Inference TFLite Progress"):
-            end_idx = min(start_idx + self.batch_size, n_segments)
-            batch = frames_windowed[start_idx:end_idx]
-            preds = self.model.predict_batch(batch)
-            preds_list.append(preds)
-
-        predictions = tf.concat(preds_list, axis=0)[:n_segments]
-        preds_reshaped = tf.reshape(predictions, [n_segments, self.segment_length, 4, 2])
-
-        stems_reshaped = tf.reshape(preds_reshaped, [n_segments, self.segment_length, 8])
-        stems_T = tf.transpose(stems_reshaped, [2, 0, 1])
-        recon = tf.map_fn(lambda ch: tf.signal.overlap_and_add(ch, hop), stems_T)
-        recon = tf.transpose(recon, [1, 0])[:n]
-        stems_out = tf.reshape(recon, [n, 4, 2])
-
-        if self.use_wiener:
-            stems_out = self._wiener_filter_tf(stems_out, audio)
-
-        return stems_out
-
-    def _predict_full_batch_tf(self, audio):
-        hop = int(round(self.segment_length * (1.0 - self.overlap)))
-        n = audio.shape[0]
-        n_segments = int(tf.math.ceil((n - self.segment_length) / hop)) + 1
-        total_len = (n_segments - 1) * hop + self.segment_length
-        pad = total_len - n
-        audio_padded = tf.pad(audio, [[0, pad], [0, 0]])
-
-        left = tf.signal.frame(audio_padded[:, 0], self.segment_length, hop)
-        right = tf.signal.frame(audio_padded[:, 1], self.segment_length, hop)
-        frames = tf.stack([left, right], axis=-1)
-        window = tf.signal.hann_window(self.segment_length, periodic=True, dtype=tf.float32)
-        frames_windowed = frames * tf.reshape(window, [1, self.segment_length, 1])
-
-        preds_list = []
-        for start_idx in range(0, n_segments, self.batch_size):
-            end_idx = min(start_idx + self.batch_size, n_segments)
-            batch = frames_windowed[start_idx:end_idx]
-            preds = self.model(batch, training=False)
-            preds_list.append(preds)
-
-        predictions = tf.concat(preds_list, axis=0)[:n_segments]
-        preds_reshaped = tf.reshape(predictions, [n_segments, self.segment_length, 4, 2])
-
-        stems_reshaped = tf.reshape(preds_reshaped, [n_segments, self.segment_length, 8])
-        stems_T = tf.transpose(stems_reshaped, [2, 0, 1])
-        recon = tf.map_fn(lambda ch: tf.signal.overlap_and_add(ch, hop), stems_T)
-        recon = tf.transpose(recon, [1, 0])[:n]
-        stems_out = tf.reshape(recon, [n, 4, 2])
-
-        if self.use_wiener:
-            stems_out = self._wiener_filter_tf(stems_out, audio)
-
-        return stems_out
-
-    def predict(self, audio, segment_length_sec=None, export=False, export_dir="stems"):
+    def predict(self, audio, export=False, export_dir="stems"):
         audio = tf.cast(audio, tf.float32)
+        if len(audio.shape) == 1:
+            audio = tf.expand_dims(audio, -1)
+        if audio.shape[-1] == 1:
+            audio = tf.repeat(audio, 2, axis=-1)
 
-        if segment_length_sec is not None and segment_length_sec > 0:
-            segment_len_samples = int(segment_length_sec * self.sample_rate)
-            n = audio.shape[0]
-            outputs = []
-            for start in range(0, n, segment_len_samples):
-                end = min(start + segment_len_samples, n)
-                seg = audio[start:end]
-                if self.is_tflite:
-                    out = self._predict_full_batch_tflite(seg)
-                else:
-                    out = self._predict_full_batch_tf(seg)
-                outputs.append(out)
-            pred = tf.concat(outputs, axis=0)
-        else:
-            if self.is_tflite:
-                pred = self._predict_full_batch_tflite(audio)
-            else:
-                pred = self._predict_full_batch_tf(audio)
+        stems = self._predict_stream(audio)
+        if self.use_wiener:
+            stems = self._wiener_filter_tf(stems, audio)
 
         if export:
             os.makedirs(export_dir, exist_ok=True)
             estimates = {
-                'vocals': pred[:, 0, :].numpy(),
-                'drums':  pred[:, 1, :].numpy(),
-                'bass':   pred[:, 2, :].numpy(),
-                'other':  pred[:, 3, :].numpy(),
+                "vocals": stems[:, 0, :].numpy(),
+                "drums": stems[:, 1, :].numpy(),
+                "bass": stems[:, 2, :].numpy(),
+                "other": stems[:, 3, :].numpy(),
             }
             for name, data in estimates.items():
                 out_path = os.path.join(export_dir, f"{name}.wav")
                 sf.write(out_path, data, self.sample_rate)
-
-            print('Export Wav Complete')
-        return pred
+            print("Export Wav Complete")
+        return stems

@@ -1,4 +1,6 @@
 import tensorflow as tf
+import onnxruntime as ort
+import numpy as np
 
 @tf.keras.utils.register_keras_serializable(package='GlobalTCN')
 class GlobalTCN(tf.keras.layers.Layer):
@@ -386,3 +388,23 @@ class TFLiteWrapper:
         self.interpreter.invoke()
         output_np = self.interpreter.get_tensor(self.output_details[0]['index'])
         return tf.convert_to_tensor(output_np, dtype=tf.float32)
+    
+class ONNXWrapper:
+    def __init__(self, model_path: str):
+        self.session = ort.InferenceSession(
+            model_path,
+            providers=["CPUExecutionProvider"] if ort.get_device() == "CPU" else ["CUDAExecutionProvider"]
+        )
+
+        self.input_name = self.session.get_inputs()[0].name
+        self.output_name = self.session.get_outputs()[0].name
+
+    def predict_batch(self, batch: tf.Tensor) -> tf.Tensor:
+        input_np = batch.numpy().astype(np.float32)
+
+        outputs = self.session.run(
+            [self.output_name],
+            {self.input_name: input_np}
+        )[0]
+
+        return tf.convert_to_tensor(outputs, dtype=tf.float32)

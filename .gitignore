@@ -3,4 +3,5 @@ test.py
 train/
 validation/
 test_inference.py
+update/
 .gitignore
